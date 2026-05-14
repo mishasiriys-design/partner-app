@@ -3,39 +3,226 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Личный кабинет партнёра</title>
+    <title>Партнёрский кабинет</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); font-family: system-ui; padding: 20px; }
-        .balance { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }
-        button { background: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); border: none; padding: 12px; border-radius: 10px; width: 100%; margin-bottom: 10px; cursor: pointer; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: var(--tg-theme-bg-color);
+            color: var(--tg-theme-text-color);
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--tg-theme-secondary-bg-color);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .balance {
+            font-size: 28px;
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+        }
+        button {
+            background: var(--tg-theme-button-color);
+            color: var(--tg-theme-button-text-color);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.7; }
+        .lead-item {
+            background: var(--tg-theme-bg-color);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            border: 1px solid var(--tg-theme-hint-color);
+        }
+        .lead-status {
+            font-weight: bold;
+            margin-top: 4px;
+            font-size: 14px;
+        }
+        .status-badge {
+            display: inline-block;
+            background: var(--tg-theme-hint-color);
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        .back-button {
+            background: var(--tg-theme-secondary-bg-color);
+            color: var(--tg-theme-text-color);
+            border: 1px solid var(--tg-theme-hint-color);
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        h2, h3 { margin-top: 0; }
     </style>
 </head>
 <body>
-    <h1>Ваш кабинет</h1>
-    <div class="balance" id="balanceValue">💰 Загрузка...</div>
-    <button id="viewLeadsBtn">📋 Мои лиды</button>
-    <button id="withdrawBtn">💸 Вывести деньги</button>
-    <button id="closeBtn">Закрыть</button>
+    <div class="container" id="app">
+        <!-- Основной экран -->
+        <div id="mainScreen">
+            <div class="card">
+                <h2>Личный кабинет</h2>
+                <div class="balance" id="balanceDisplay">💰 Загрузка...</div>
+            </div>
+            <button id="leadsBtn">📋 Мои лиды</button>
+            <button id="withdrawBtn">💸 Вывести деньги</button>
+        </div>
+
+        <!-- Экран лидов (изначально скрыт) -->
+        <div id="leadsScreen" style="display:none;">
+            <button id="backToMainBtn" class="back-button">← Назад</button>
+            <h3>Ваши лиды</h3>
+            <div id="leadsList">Загрузка...</div>
+        </div>
+
+        <!-- Экран вывода (простой) -->
+        <div id="withdrawScreen" style="display:none;">
+            <button id="backToMainFromWithdrawBtn" class="back-button">← Назад</button>
+            <h3>Вывод средств</h3>
+            <input type="number" id="withdrawAmount" placeholder="Сумма (мин. 500 ₽)" style="width:100%; padding:10px; margin:10px 0; border-radius:8px; border:1px solid var(--tg-theme-hint-color); background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color);">
+            <button id="submitWithdrawBtn">Отправить заявку</button>
+            <div id="withdrawMessage" class="error"></div>
+        </div>
+    </div>
 
     <script>
         let tg = window.Telegram.WebApp;
-        tg.ready(); // Сообщаем Telegram, что приложение готово
-        tg.expand(); // Раскрываем приложение на весь экран
-        
-        // Получаем данные для авторизации пользователя
+        tg.ready();
+        tg.expand();
+
+        const API_BASE = "https://tvoi-server.ru"; // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ АДРЕС ВАШЕГО API (через ngrok или ваш домен)
         const initData = tg.initData;
-        console.log("Init data for backend:", initData);
-        
-        // Здесь будет логика для получения данных с вашего сервера (API)
-        document.getElementById('viewLeadsBtn').onclick = () => {
-            // Пока просто закрываем приложение, чтобы показать принцип
-            tg.close();
+
+        // Функция запроса к API
+        async function callApi(endpoint, data = {}) {
+            const response = await fetch(`${API_BASE}/api/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initData, ...data })
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Ошибка запроса');
+            }
+            return response.json();
+        }
+
+        // Загрузка баланса
+        async function loadBalance() {
+            try {
+                const result = await callApi('get_balance');
+                document.getElementById('balanceDisplay').innerHTML = `💰 ${result.balance} ₽`;
+            } catch (error) {
+                document.getElementById('balanceDisplay').innerHTML = '⚠️ Ошибка загрузки';
+                console.error(error);
+            }
+        }
+
+        // Загрузка списка лидов
+        async function loadLeads() {
+            const leadsDiv = document.getElementById('leadsList');
+            leadsDiv.innerHTML = '<div class="loading">Загрузка...</div>';
+            try {
+                const result = await callApi('get_leads');
+                if (result.leads && result.leads.length > 0) {
+                    let html = '';
+                    for (let lead of result.leads) {
+                        html += `
+                            <div class="lead-item">
+                                <strong>${escapeHtml(lead.client_name)}</strong><br>
+                                📞 ${escapeHtml(lead.phone)}<br>
+                                <div class="lead-status">
+                                    <span class="status-badge">${escapeHtml(lead.status)}</span>
+                                    ${lead.amount ? `💰 ${lead.amount} ₽` : ''}
+                                </div>
+                                <small>📅 ${lead.created_at}</small>
+                            </div>
+                        `;
+                    }
+                    leadsDiv.innerHTML = html;
+                } else {
+                    leadsDiv.innerHTML = '<div class="loading">У вас пока нет лидов.</div>';
+                }
+            } catch (error) {
+                leadsDiv.innerHTML = '<div class="error">Ошибка загрузки лидов</div>';
+                console.error(error);
+            }
+        }
+
+        // Отправка заявки на вывод через sendData (простой вариант)
+        async function requestWithdraw(amount) {
+            if (amount < 500) {
+                document.getElementById('withdrawMessage').innerText = '❌ Минимальная сумма 500 ₽';
+                return false;
+            }
+            // Отправляем через sendData
+            tg.sendData(JSON.stringify({ action: "withdraw", amount: amount }));
+            tg.close(); // закроем приложение после отправки, но можно оставить
+            return true;
+        }
+
+        // Вспомогательная функция для экранов
+        function showScreen(screenName) {
+            document.getElementById('mainScreen').style.display = screenName === 'main' ? 'block' : 'none';
+            document.getElementById('leadsScreen').style.display = screenName === 'leads' ? 'block' : 'none';
+            document.getElementById('withdrawScreen').style.display = screenName === 'withdraw' ? 'block' : 'none';
+        }
+
+        // Инициализация
+        loadBalance();
+
+        // Обработчики кнопок
+        document.getElementById('leadsBtn').onclick = () => {
+            showScreen('leads');
+            loadLeads();
         };
-        
-        document.getElementById('closeBtn').onclick = () => {
-            tg.close();
+        document.getElementById('withdrawBtn').onclick = () => {
+            showScreen('withdraw');
         };
+        document.getElementById('backToMainBtn').onclick = () => showScreen('main');
+        document.getElementById('backToMainFromWithdrawBtn').onclick = () => showScreen('main');
+        document.getElementById('submitWithdrawBtn').onclick = () => {
+            const amount = parseInt(document.getElementById('withdrawAmount').value, 10);
+            if (isNaN(amount)) {
+                document.getElementById('withdrawMessage').innerText = '❌ Введите число';
+                return;
+            }
+            requestWithdraw(amount);
+        };
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
     </script>
 </body>
 </html>
